@@ -17,6 +17,23 @@ import (
 // func prettifyStruct(obj interface{}) string {
 // 	bytes, _ := json.MarshalIndent(obj, "", "  ")
 // 	return string(bytes)
+// // }
+
+// func extractTextFromPDF(pdfPath string) (string, error) {
+// 	f, r, err := pdf.Open(pdfPath)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	defer f.Close()
+
+// 	var buf bytes.Buffer
+// 	b, err := r.GetPlainText()
+// 	if err != nil {
+// 		return "", err
+// 	}
+
+// 	buf.ReadFrom(b)
+// 	return buf.String(), nil
 // }
 
 func Upsert(client *pinecone.Client, req []models.EmbeddingRequest, ctx context.Context) error {

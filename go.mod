@@ -5,6 +5,7 @@ go 1.23.2
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/validator/v10 v10.24.0
+	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
 	github.com/pinecone-io/go-pinecone v1.1.1
 	github.com/spf13/viper v1.19.0
 	google.golang.org/protobuf v1.36.5

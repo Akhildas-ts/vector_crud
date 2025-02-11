@@ -10,9 +10,10 @@ import (
 	"github.com/pinecone-io/go-pinecone/pinecone"
 )
 
-func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Client, ctx context.Context) gin.HandlerFunc {
+func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx := context.Background()
+		// Use context from request
+		ctx := c.Request.Context()
 
 		// Define a struct to bind the JSON body
 		type SearchRequest struct {
@@ -32,21 +33,27 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			return
 		}
 
-		fmt.Println("req.querry", req.Query)
+		log.Println("Received Query:", req.Query)
 
-		// Convert the query string into a vector (Here, assuming you have a function to do this)
+		// Convert the query string into a vector
 		queryVector, err := ConvertQueryToVector(client, req.Query, ctx) // Replace with actual conversion logic
-		fmt.Println("Query Vector:", queryVector)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to convert query to vector"})
+			return
+		}
+
+		log.Println("Generated Query Vector:", queryVector)
+
+		// Ensure queryVector has valid values
+		if len(queryVector) == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Generated query vector is empty"})
 			return
 		}
 
 		// Fetch the top 5 most related vectors from Pinecone
 		res, err := idxConnection.QueryByVectorValues(ctx, &pinecone.QueryByVectorValuesRequest{
 			Vector:          queryVector,
-			TopK:            10,
+			TopK:            5, // Fetch top 5 matches
 			IncludeValues:   true,
 			IncludeMetadata: true,
 		})
@@ -56,35 +63,32 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			return
 		}
 
-		// Prepare the response as strings (ID and data)
-		var responseData []string
-		for _, match := range res.Matches {
+		// Log the response for debugging
+		log.Printf("Query Results: %+v", res)
 
-			// Extract metadata from match.Vector.Metadata (type: *structpb.Struct)
+		// Prepare the response as structured JSON
+		var responseData []gin.H
+		for _, match := range res.Matches {
 			metadataData := ""
 
 			if metadata := match.Vector.Metadata; metadata != nil {
-
-				// Get the field values from Metadata (which is a *structpb.Struct)
-				fields := metadata.GetFields()
-
-				// Check if the "data" field exists in the Metadata
-				if dataField, exists := fields["text"]; exists {
-					// Extract the data as a string (assuming the field is a string)
-					dataValue := dataField.GetStringValue() // No need for `ok` check
-					metadataData = dataValue
+				if dataField, exists := metadata.GetFields()["text"]; exists {
+					metadataData = dataField.GetStringValue()
 				}
 			}
 
-			// Format the response with the vector ID and associated data
-			data := fmt.Sprintf("ID: %s, Data: %s", match.Vector.Id, metadataData)
-			responseData = append(responseData, data)
+			responseData = append(responseData, gin.H{
+				"id":    match.Vector.Id,
+				"score": match.Score,
+				"text":  metadataData,
+			})
 		}
 
 		// Return the structured response as JSON
-		c.JSON(http.StatusOK, responseData)
+		c.JSON(http.StatusOK, gin.H{"results": responseData})
 	}
 }
+
 func ConvertQueryToVector(client *pinecone.Client, query string, ctx context.Context) ([]float32, error) {
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")

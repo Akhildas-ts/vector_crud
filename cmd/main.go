@@ -5,126 +5,169 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"vectorchat/pkg"
 	"vectorchat/pkg/config"
 	"vectorchat/pkg/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pinecone-io/go-pinecone/pinecone"
 	"github.com/joho/godotenv"
-	
+	"github.com/ledongthuc/pdf"
+	"github.com/pinecone-io/go-pinecone/pinecone"
 )
 
-func main() {
+var (
+	pc            *pinecone.Client
+	idxConnection *pinecone.IndexConnection
+	ctx           context.Context
+)
 
-
-
+func init() {
 	if err := godotenv.Load(); err != nil {
 		fmt.Println("No .env file found")
 	}
+
 	cfg, err := config.LoadConfig()
-
 	if err != nil {
-		fmt.Println("err", err)
-		fmt.Errorf("load config error ", err)
-
-		return
+		log.Fatalf("Failed to load config: %v", err)
 	}
-	r := gin.Default()
 
 	fmt.Println("config.Env ", cfg.ApiKey)
-	pc, err := pinecone.NewClient(pinecone.NewClientParams{
+
+	pc, err = pinecone.NewClient(pinecone.NewClientParams{
 		ApiKey: cfg.ApiKey,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create Client: %v", err)
+		log.Fatalf("Failed to create Pinecone client: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx = context.Background()
+
+	idxConnection, err = pc.Index(pinecone.NewIndexConnParams{
+		Host:      cfg.PineconeHost,
+		Namespace: "example-namespace",
+	})
+	if err != nil {
+		log.Fatalf("Failed to create IndexConnection: %v", err)
+	}
+}
+
+func main() {
+	r := gin.Default()
 
 	r.POST("/upsert", func(c *gin.Context) {
-		request := []models.EmbeddingRequest{}
-
+		var request []models.EmbeddingRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
-
-			fmt.Println(err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
 
-		err := pkg.Upsert(pc, request, ctx)
-
-		if err != nil {
-
-			c.JSON(http.StatusBadRequest, gin.H{"error": "upsert issue "})
+		if err := pkg.Upsert(pc, request, ctx); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Upsert issue"})
 			return
 		}
-
 	})
 
-	idxConnection, err := pc.Index(pinecone.NewIndexConnParams{Host: cfg.PineconeHost, Namespace: "example-namespace"})
-	if err != nil {
-		log.Fatalf("Failed to create IndexConnection for Host: %v", err)
-	}
-
-	r.POST("/search", pkg.SearchHandler(idxConnection, pc, ctx))
+	r.POST("/search", pkg.SearchHandler(idxConnection, pc))
+	r.POST("/convert", ConvertMultiplePDFsToTextArray)
+	r.POST("/query", SearchHandler)
 
 	log.Println("Starting server on port 8080...")
 	r.Run(":8080")
 }
 
-// r.POST("/search", func(c *gin.Context) {
-// Start the server on port 8080
+func SearchHandler(c *gin.Context) {
 
-// // Convert text to vector using embedding API
-// vectorValues, err := pkg.GetEmbedding(request.Inputs[0], env.EmbeddingAPIKey)
-// if err != nil {
+	var data interface{}
+	// var request map[string]string
+	if err := c.BindJSON(&data); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
 
-// 	fmt.Println("error is ", err)
-// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate embeddings"})
-// 	return
-// }
+	var v map[string]interface{}
+	switch temp := data.(type) {
+	case map[string]interface{}:
+		v = temp // Assign temp to v
+		fmt.Println(v)
+	}
 
-// vector := models.Vector{
-// 	ID:     fmt.Sprintf("text-%d", time.Now().UnixNano()), // Unique ID
-// 	Values: vectorValues,
-// }
+	fmt.Println("data", data)
 
-// // Upsert vector to Pinecone with the provided namespace
-// err = pkg.UpsertToPinecone([]models.Vector{vector}, request.Namespace)
-// if err != nil {
+	result, err := pkg.SearchGemini(v["query"].(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	fmt.Println("a2")
 
-// 	fmt.Println("error", err)
-// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store vector in Pinecone"})
-// 	return
-// }
-// 	var request struct {
-// 		Query string `json:"query"`
-// 		TopK  int    `json:"top_k"`
-// 	}
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}
 
-// 	// Bind the JSON request body
-// 	if err := c.ShouldBindJSON(&request); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-// 		return
-// 	}
+func ConvertMultiplePDFsToTextArray(c *gin.Context) {
+	// Step 1: Receive multiple files from the request
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to get form data"})
+		return
+	}
 
-// 	// Get embedding for the query
-// 	queryVector, err := pkg.GetEmbedding(request.Query, env.EmbeddingAPIKey)
-// 	if err != nil {
+	files := form.File["pdfs[]"] // Expecting multiple files under key "pdfs[]"
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No PDF files uploaded"})
+		return
+	}
 
-// 		fmt.Println("error ", err)
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate embeddings"})
-// 		return
-// 	}
+	// Step 2: Iterate over each PDF file
+	var results []gin.H
 
-// 	// Perform the search in Pinecone
-// 	searchResults, err := pkg.SearchPinecone(queryVector, env.PineconeIndex, request.TopK)
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to perform search"})
-// 		return
-// 	}
+	for _, file := range files {
+		tempFile := fmt.Sprintf("/tmp/%s", file.Filename)
+		if err := c.SaveUploadedFile(file, tempFile); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save PDF"})
+			return
+		}
 
-// 	// Respond with search results
-// 	c.JSON(http.StatusOK, gin.H{"results": searchResults})
-// })
+		// Open the saved PDF file
+		f, err := os.Open(tempFile)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to open %s", file.Filename)})
+			return
+		}
+		defer f.Close()
+
+		// Read the PDF
+		reader, err := pdf.NewReader(f, file.Size)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read %s", file.Filename)})
+			return
+		}
+
+		// Extract text from each page
+		var pagesText []string
+		numPages := reader.NumPage()
+		for i := 1; i <= numPages; i++ {
+			page := reader.Page(i)
+			if page.V.IsNull() {
+				continue
+			}
+
+			text, err := page.GetPlainText(nil)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to extract text from %s", file.Filename)})
+				return
+			}
+
+			pagesText = append(pagesText, text)
+		}
+
+		// Store results for each PDF
+		results = append(results, gin.H{
+			"file":  file.Filename,
+			"pages": pagesText,
+		})
+	}
+
+	// Step 3: Return the extracted text for all PDFs as JSON
+	c.JSON(http.StatusOK, gin.H{"results": results})
+}
