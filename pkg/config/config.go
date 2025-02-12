@@ -10,11 +10,11 @@ type Config struct {
 	PineconeIndex  string `mapstructure:"PINECONEINDEX" validate:"required"`
 	PineconeHost   string `mapstructure:"PINECONEHOST" validate:"required,url"`
 	ApiKey         string `mapstructure:"APIKEY" validate:"required"`
-	GeminiApiKey   string `mapstructure:"GEMINIAPIKEY" validate:"required"`
+	OpenApiKey     string `mapstructure:"OPENAPIKEY" validate:"required"`
 }
 
 var envs = []string{
-	"PINECONEAPIKEY", "PINECONEINDEX", "PINECONEHOST", "APIKEY", "GEMINIAPIKEY",
+	"PINECONEAPIKEY", "PINECONEINDEX", "PINECONEHOST", "APIKEY", "OPENAPIKEY",
 }
 
 func LoadConfig() (Config, error) {

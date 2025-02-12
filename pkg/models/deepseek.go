@@ -1,19 +1,19 @@
 package models
 
-type GeminiRequest struct {
-	Contents []struct {
-		Parts []struct {
-			Text string `json:"text"`
-		} `json:"parts"`
-	} `json:"contents"`
+type OpenAIRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float64   `json:"temperature"`
+	Stream      bool      `json:"stream"`
 }
 
-type GeminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"content"`
-	} `json:"candidates"`
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type OpenAIResponse struct {
+	Choices []struct {
+		Message Message `json:"message"`
+	} `json:"choices"`
 }

@@ -42,18 +42,16 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			return
 		}
 
-		log.Println("Generated Query Vector:", queryVector)
-
 		// Ensure queryVector has valid values
 		if len(queryVector) == 0 {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Generated query vector is empty"})
 			return
 		}
 
-		// Fetch the top 5 most related vectors from Pinecone
+		// Fetch the top 3 most related vectors from Pinecone
 		res, err := idxConnection.QueryByVectorValues(ctx, &pinecone.QueryByVectorValuesRequest{
 			Vector:          queryVector,
-			TopK:            5, // Fetch top 5 matches
+			TopK:            3, // Fetch top 5 matches
 			IncludeValues:   true,
 			IncludeMetadata: true,
 		})
@@ -62,9 +60,6 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vectors"})
 			return
 		}
-
-		// Log the response for debugging
-		log.Printf("Query Results: %+v", res)
 
 		// Prepare the response as structured JSON
 		var responseData []gin.H
@@ -84,8 +79,28 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			})
 		}
 
+		prompt := `
+	The user has asked the following query:
+	"%s"
+
+	Below are the relevant search results retrieved from Pinecone:
+	"%s"
+
+	Based on these search results, provide a comprehensive, well-structured, and detailed response to the user's query. Ensure clarity, relevance, and accuracy in the answer.
+`
+
+		finalPrompt := fmt.Sprintf(prompt, req.Query, responseData)
+
+		finalResp, err := SearchOpenAI(finalPrompt)
+
+		if err != nil {
+
+			c.JSON(http.StatusBadGateway, gin.H{"gemini resp": err})
+			return
+		}
+
 		// Return the structured response as JSON
-		c.JSON(http.StatusOK, gin.H{"results": responseData})
+		c.JSON(http.StatusOK, gin.H{"results": finalResp})
 	}
 }
 
@@ -121,52 +136,3 @@ func ConvertQueryToVector(client *pinecone.Client, query string, ctx context.Con
 	// Return the vector as a slice of float32
 	return *values, nil
 }
-
-// func SearchHandler(idxConnection *pinecone.IndexConnection) gin.HandlerFunc {
-// 	return func(c *gin.Context) {
-// 		ctx := context.Background()
-
-// 		// Define a struct to bind the JSON body
-// 		type SearchRequest struct {
-// 			VectorIDs []string `json:"ids"` // Expecting a list of vector IDs
-// 		}
-
-// 		var req SearchRequest
-// 		// Bind JSON body to the struct
-// 		if err := c.ShouldBindJSON(&req); err != nil {
-// 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format"})
-// 			return
-// 		}
-
-// 		// Check if any vector IDs were provided
-// 		if len(req.VectorIDs) == 0 {
-// 			c.JSON(http.StatusBadRequest, gin.H{"error": "No vector IDs provided"})
-// 			return
-// 		}
-
-// 		// Fetch vectors from Pinecone
-// 		res, err := idxConnection.FetchVectors(ctx, req.VectorIDs)
-
-// 		fmt.Println("Requested Vector IDs:", req.VectorIDs)
-
-// 		if err != nil {
-// 			log.Printf("Failed to fetch vectors: %v", err)
-// 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vectors"})
-// 			return
-// 		}
-
-// 		// Format the response to show relevant data (ID, Metadata)
-// 		var responseData []map[string]interface{}
-
-// 		for _, vector := range res.Vectors {
-// 			data := map[string]interface{}{
-// 				"ID":     vector.Id,
-// 				"Fields": vector.Metadata, // Assuming metadata has the 'text' field
-// 			}
-// 			responseData = append(responseData, data)
-// 		}
-
-// 		// Return the structured response as JSON
-// 		c.JSON(http.StatusOK, responseData)
-// 	}
-// }

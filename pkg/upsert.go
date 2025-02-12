@@ -110,6 +110,7 @@ func Upsert(client *pinecone.Client, req []models.EmbeddingRequest, ctx context.
 
 }
 
+
 // func UpsertToPinecone(vectors []models.Vector, namespace string) error {
 // 	payload := models.PineconeUpsertRequest{
 // 		Vectors:   vectors,

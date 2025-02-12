@@ -12,15 +12,12 @@ import (
 
 const geminiURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?"
 
-func SearchGemini(query string) (string, error) {
-
-	prompt := `
-	you are a good assistant in answering.
-	the user asked about this question :
-	%s
-	answer this in 5 sentense
-	
-	`
+func SearchOpenAI(query string) (string, error) {
+	prompt := fmt.Sprintf(`You are a highly skilled assistant in summarizing conversations.
+The user provided an interview conversation spanning 5-6 pages.
+%s
+Summarize the conversation while including all key points, ensuring that no important details are missed.
+Provide a clear and concise summary while maintaining the essence of the discussion.`, query)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -28,26 +25,18 @@ func SearchGemini(query string) (string, error) {
 		return "", err
 	}
 
-	apiKey := cfg.GeminiApiKey // Use Gemini API Key from config
+	apiKey := cfg.OpenApiKey // Use OpenAI API Key from config
 	if apiKey == "" {
 		return "", fmt.Errorf("API key is missing")
 	}
 
-	pro := fmt.Sprintf(prompt, query)
-	requestBody := models.GeminiRequest{
-		Contents: []struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		}{
-			{
-				Parts: []struct {
-					Text string `json:"text"`
-				}{
-					{Text: pro},
-				},
-			},
+	requestBody := models.OpenAIRequest{
+		Model: "gpt-4",
+		Messages: []models.Message{
+			{Role: "system", Content: "You are a helpful assistant."},
+			{Role: "user", Content: prompt},
 		},
+		Temperature: 0.3,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -56,12 +45,13 @@ func SearchGemini(query string) (string, error) {
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", geminiURL+"key="+apiKey, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Println("req", err)
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -82,7 +72,7 @@ func SearchGemini(query string) (string, error) {
 		return "", err
 	}
 
-	var responseBody models.GeminiResponse
+	var responseBody models.OpenAIResponse
 	err = json.Unmarshal(body, &responseBody)
 	if err != nil {
 		fmt.Println("JSON Unmarshal error:", err)
@@ -90,9 +80,9 @@ func SearchGemini(query string) (string, error) {
 	}
 
 	// Extract response content
-	if len(responseBody.Candidates) > 0 && len(responseBody.Candidates[0].Content.Parts) > 0 {
-		return responseBody.Candidates[0].Content.Parts[0].Text, nil
+	if len(responseBody.Choices) > 0 {
+		return responseBody.Choices[0].Message.Content, nil
 	}
 
-	return "", fmt.Errorf("empty response from Gemini API")
+	return "", fmt.Errorf("empty response from OpenAI API")
 }
