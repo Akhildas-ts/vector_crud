@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"vectorchat/pkg/config"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pinecone-io/go-pinecone/pinecone"
+	"github.com/sashabaranov/go-openai"
 )
 
 func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Client) gin.HandlerFunc {
@@ -33,10 +35,18 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 			return
 		}
 
-		log.Println("Received Query:", req.Query)
+		expandQuerry, err := ExpandQuery(req.Query)
+
+		if err != nil {
+
+			fmt.Println("error on expand querry")
+			return
+		}
+
+		log.Println("expand querry Received :", expandQuerry)
 
 		// Convert the query string into a vector
-		queryVector, err := ConvertQueryToVector(client, req.Query, ctx) // Replace with actual conversion logic
+		queryVector, err := ConvertQueryToVector(client, expandQuerry, ctx) // Replace with actual conversion logic
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to convert query to vector"})
 			return
@@ -80,16 +90,16 @@ func SearchHandler(idxConnection *pinecone.IndexConnection, client *pinecone.Cli
 		}
 
 		prompt := `
-	The user has asked the following query:
+	The user asked: "%s"
+
+	Expanded Query: "%s"
+
+	Below are the retrieved search results:
 	"%s"
 
-	Below are the relevant search results retrieved from Pinecone:
-	"%s"
-
-	Based on these search results, provide a comprehensive, well-structured, and detailed response to the user's query. Ensure clarity, relevance, and accuracy in the answer.
+	Using these results, provide a well-structured, relevant, and detailed response.
 `
-
-		finalPrompt := fmt.Sprintf(prompt, req.Query, responseData)
+		finalPrompt := fmt.Sprintf(prompt, req.Query, expandQuerry, responseData)
 
 		finalResp, err := SearchOpenAI(finalPrompt)
 
@@ -109,20 +119,32 @@ func ConvertQueryToVector(client *pinecone.Client, query string, ctx context.Con
 		return nil, fmt.Errorf("query cannot be empty")
 	}
 
-	embeddingModel := "multilingual-e5-large"
+	// embeddingModel := "multilingual-e5-large"
 
 	// Define embedding parameters
-	docParameters := pinecone.EmbedParameters{
-		InputType: "passage",
-		Truncate:  "END",
+	// docParameters := pinecone.EmbedParameters{
+	// 	InputType: "passage",
+	// 	Truncate:  "END",
+	// }
+
+	// start := time.Now()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+
+		return nil, err
 	}
+	openAiClient := openai.NewClient(cfg.OpenApiKey)
+	embeddingRes, err := openAiClient.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: query,
+	})
 
 	// Convert query string into vector format by calling the embedding service
-	docEmbeddingsResponse, err := client.Inference.Embed(ctx, &pinecone.EmbedRequest{
-		Model:      embeddingModel,
-		TextInputs: []string{query}, // Single query string
-		Parameters: docParameters,
-	})
+	// docEmbeddingsResponse, err := client.Inference.Embed(ctx, &pinecone.EmbedRequest{
+	// 	Model:      embeddingModel,
+	// 	TextInputs: []string{query}, // Single query string
+	// 	Parameters: docParameters,
+	// })
 
 	if err != nil {
 		log.Fatalf("Failed to embed query: %v", err)
@@ -130,9 +152,21 @@ func ConvertQueryToVector(client *pinecone.Client, query string, ctx context.Con
 	}
 
 	// Assuming that the response contains a single vector for the query (index 0)
-	embedding := (*docEmbeddingsResponse.Data)[0]
-	values := embedding.Values
+
+	values := embeddingRes.Data[0].Embedding
 
 	// Return the vector as a slice of float32
-	return *values, nil
+	return values, nil
+}
+
+func ExpandQuery(originalQuery string) (string, error) {
+	// Call OpenAI (or any LLM) to generate an expanded query
+	prompt := fmt.Sprintf(`Expand the following query by adding relevant keywords or synonyms while preserving intent: "%s"`, originalQuery)
+
+	expandedQuery, err := SearchOpenAI(prompt)
+	if err != nil {
+		return "", err
+	}
+
+	return expandedQuery, nil
 }

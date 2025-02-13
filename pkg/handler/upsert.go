@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ledongthuc/pdf"
 	"github.com/pinecone-io/go-pinecone/pinecone"
+	"github.com/sashabaranov/go-openai"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -33,7 +34,7 @@ func Upsert(files []*multipart.FileHeader, c *gin.Context) error {
 		return fmt.Errorf("failed to create Pinecone client: %w", err)
 	}
 
-	indexName := "dimensions1024"
+	indexName := "rag"
 	idxModel, err := client.DescribeIndex(ctx, indexName)
 	if err != nil {
 		return fmt.Errorf("failed to describe index \"%v\": %w", indexName, err)
@@ -41,7 +42,7 @@ func Upsert(files []*multipart.FileHeader, c *gin.Context) error {
 
 	idxConnection, err := client.Index(pinecone.NewIndexConnParams{
 		Host:      idxModel.Host,
-		Namespace: "example-namespace",
+		Namespace: "rag-namespace",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create IndexConnection: %w", err)
@@ -124,20 +125,32 @@ func processFile(file *multipart.FileHeader, c *gin.Context, client *pinecone.Cl
 
 	// Generate embeddings using Pinecone
 	ctx := context.Background()
-	start := time.Now()
-	docEmbeddingsResponse, err := client.Inference.Embed(ctx, &pinecone.EmbedRequest{
-		Model:      "multilingual-e5-large",
-		TextInputs: []string{text},
-		Parameters: pinecone.EmbedParameters{InputType: "passage", Truncate: "END"},
+	// start := time.Now()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+
+		return nil, err
+	}
+	openAiClient := openai.NewClient(cfg.OpenApiKey)
+	embeddingRes, err := openAiClient.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: summaryText,
 	})
-	fmt.Println("Embedding took:", time.Since(start))
+
+	// docEmbeddingsResponse, err := client.Inference.Embed(ctx, &pinecone.EmbedRequest{
+	// 	Model:      "text-embedding-ada-002",
+	// 	TextInputs: []string{text},
+	// 	Parameters: pinecone.EmbedParameters{InputType: "passage", Truncate: "END"},
+	// })
+	// fmt.Println("Embedding took:", time.Since(start))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
-	embedding := (*docEmbeddingsResponse.Data)[0]
-	values := embedding.Values
+	// embedding := (*docEmbeddingsResponse.Data)[0]
+	value := embeddingRes.Data[0].Embedding
+	// values := embedding.Value
 
 	metadataMap := map[string]interface{}{
 		"filename": file.Filename,
@@ -147,7 +160,7 @@ func processFile(file *multipart.FileHeader, c *gin.Context, client *pinecone.Cl
 
 	return &pinecone.Vector{
 		Id:       file.Filename,
-		Values:   *values,
+		Values:   value,
 		Metadata: metadata,
 	}, nil
 }

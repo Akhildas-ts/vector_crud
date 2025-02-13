@@ -43,7 +43,7 @@ func init() {
 
 	idxConnection, err = pc.Index(pinecone.NewIndexConnParams{
 		Host:      cfg.PineconeHost,
-		Namespace: "example-namespace",
+		Namespace: "rag-namespace",
 	})
 	if err != nil {
 		log.Fatalf("Failed to create IndexConnection: %v", err)
@@ -77,9 +77,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "PDFs processed successfully"})
 	})
 	r.POST("/search", pkg.SearchHandler(idxConnection, pc))
-	// r.POST("/convert", ConvertMultiplePDFsToTextArray)
 	r.POST("/query", handler.SearchHandler)
-	// r.GET("/vectors", pkg.GetAllVectors)
 
 	log.Println("Starting server on port 8080...")
 	r.Run(":8080")
