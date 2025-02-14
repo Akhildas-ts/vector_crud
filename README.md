@@ -10,7 +10,7 @@ Search API: Allows querying stored embeddings for similarity search using an LLM
 
 Tech Stack
 
-Go/Python (Specify your backend language)
+Go
 
 Pinecone for vector storage
 
