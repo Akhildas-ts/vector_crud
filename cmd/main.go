@@ -81,4 +81,5 @@ func main() {
 
 	log.Println("Starting server on port 8080...")
 	r.Run(":8080")
+	fmt.Println("working")
 }
